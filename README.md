@@ -10,4 +10,5 @@ There I would like to share some my commands and settings.
 ## Docs, links
 
 - [Scripting reference](https://copyq.readthedocs.io/en/latest/scripting.html)
+- [Writing commands](https://copyq.readthedocs.io/en/latest/writing-commands-and-adding-functionality.html)
 - [Official command examples](https://copyq.readthedocs.io/en/latest/command-examples.html)
