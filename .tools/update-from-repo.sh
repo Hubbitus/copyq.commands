@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-tools_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tools_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" #"
 repo_dir="$(cd "$tools_dir/.." && pwd)"
 target="${COPYQ_COMMANDS_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/copyq/copyq-commands.ini}"
 
@@ -82,5 +82,9 @@ if [[ "$ready" != 1 ]]; then
   exit 1
 fi
 
-timeout 30s env COPYQ_SETTINGS_PATH="$settings_dir" QT_QPA_PLATFORM=offscreen \
-  copyq --session="$session" eval - update-from-repo "$target" "$repo_dir" "${import_files[@]}" < "$tools_dir/copyq_import_export.js"
+result=$(
+  timeout 30s env COPYQ_SETTINGS_PATH="$settings_dir" QT_QPA_PLATFORM=offscreen \
+    copyq --session="$session" eval - update-from-repo "$target" "$repo_dir" "${import_files[@]}" < "$tools_dir/copyq_import_export.js"
+)
+
+printf 'exported=%s\n' "$result"
