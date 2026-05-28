@@ -42,6 +42,205 @@ function makeUniquePath(dir, baseName) {
   return path;
 }
 
+function leadingWhitespace(line) {
+  if (line == null)
+    return '';
+  var match = line.match(/^[ \t]*/);
+  return match ? match[0] : '';
+}
+
+function shiftIndent(line, delta) {
+  if (delta > 0) {
+    var count = 0;
+    while (count < delta && count < line.length && line.charAt(count) == ' ')
+      ++count;
+    return line.slice(count);
+  }
+
+  if (delta < 0) {
+    var pad = '';
+    for (var i = 0; i < -delta; ++i)
+      pad += ' ';
+    return pad + line;
+  }
+
+  return line;
+}
+
+function isBlockOpen(line) {
+  return /^(?:[0-9]+\\)?(?:Command|MatchCommand)="$/.test(line.trim());
+}
+
+function isBlockClose(line) {
+  return line.trim() == '"';
+}
+
+function isBlankLine(line) {
+  if (line == null)
+    return true;
+  return line.trim() == '';
+}
+
+function countLeadingBlankLines(lines) {
+  var count = 0;
+  while (count < lines.length && isBlankLine(lines[count]))
+    ++count;
+  return count;
+}
+
+function countTrailingBlankLines(lines) {
+  var count = 0;
+  while (count < lines.length && isBlankLine(lines[lines.length - 1 - count]))
+    ++count;
+  return count;
+}
+
+function trimOuterBlankLines(lines) {
+  var start = 0;
+  var end = lines.length;
+
+  while (start < end && isBlankLine(lines[start]))
+    ++start;
+  while (end > start && isBlankLine(lines[end - 1]))
+    --end;
+
+  return lines.slice(start, end);
+}
+
+function makeBlankLines(count) {
+  var lines = [];
+  for (var i = 0; i < count; ++i)
+    lines.push('');
+  return lines;
+}
+
+function normalizeBodyForComparison(lines) {
+  return trimOuterBlankLines(lines).map(function(line) {
+    return line.replace(/^[ \t]+/, '').replace(/[ \t]+$/, '');
+  }).join('\n');
+}
+
+function normalizeTextForComparison(text) {
+  var lines = trimOuterBlankLines(text.split('\n'));
+  var out = [];
+  var previousBlank = false;
+
+  for (var i = 0; i < lines.length; ++i) {
+    var line = lines[i].replace(/^[ \t]+/, '').replace(/[ \t]+$/, '');
+    var blank = line == '';
+
+    if (blank) {
+      if (previousBlank)
+        continue;
+      previousBlank = true;
+      out.push('');
+      continue;
+    }
+
+    previousBlank = false;
+    out.push(line);
+  }
+
+  return out.join('\n');
+}
+
+function collectBlocks(lines) {
+  var blocks = [];
+
+  for (var i = 0; i < lines.length; ++i) {
+    if (!isBlockOpen(lines[i]))
+      continue;
+
+    var openIndex = i;
+    var bodyStart = i + 1;
+    while (i + 1 < lines.length && !isBlockClose(lines[i + 1]))
+      ++i;
+
+    blocks.push({
+      openIndex: openIndex,
+      bodyStart: bodyStart,
+      closeIndex: i + 1,
+    });
+  }
+
+  return blocks;
+}
+
+function adjustCommandBlocks(originalText, exportedText) {
+  var originalNormalizedText = normalizeTextForComparison(originalText);
+  var exportedNormalizedText = normalizeTextForComparison(exportedText);
+
+  if (originalNormalizedText == exportedNormalizedText)
+    return originalText;
+
+  var originalLines = originalText.split('\n');
+  var exportedLines = exportedText.split('\n');
+  var originalBlocks = collectBlocks(originalLines);
+  var exportedBlocks = collectBlocks(exportedLines);
+
+  if (originalBlocks.length != exportedBlocks.length)
+    return exportedText;
+
+  var out = [];
+  var cursor = 0;
+
+  for (var b = 0; b < exportedBlocks.length; ++b) {
+    var originalBlock = originalBlocks[b];
+    var exportedBlock = exportedBlocks[b];
+    var originalIndent = '';
+    var exportedIndent = '';
+    var originalQuoteIndent = leadingWhitespace(originalLines[originalBlock.closeIndex]);
+    var exportedQuoteIndent = leadingWhitespace(exportedLines[exportedBlock.closeIndex]);
+    var originalBody = originalLines.slice(originalBlock.bodyStart, originalBlock.closeIndex);
+    var exportedBody = exportedLines.slice(exportedBlock.bodyStart, exportedBlock.closeIndex);
+    var originalLeadingBlanks = countLeadingBlankLines(originalBody);
+    var originalTrailingBlanks = countTrailingBlankLines(originalBody);
+    var originalNormalizedBody = normalizeBodyForComparison(originalBody);
+    var exportedNormalizedBody = normalizeBodyForComparison(exportedBody);
+    var body = exportedBody;
+
+    if (originalNormalizedBody == exportedNormalizedBody) {
+      body = originalBody.slice(0);
+    } else {
+      for (var i = 0; i < originalBody.length; ++i) {
+        if (originalBody[i] != '') {
+          originalIndent = leadingWhitespace(originalBody[i]);
+          break;
+        }
+      }
+
+      for (var i = 0; i < exportedBody.length; ++i) {
+        if (exportedBody[i] != '') {
+          exportedIndent = leadingWhitespace(exportedBody[i]);
+          break;
+        }
+      }
+
+      var delta = exportedIndent.length - originalIndent.length;
+      for (var i = 0; i < exportedBody.length; ++i)
+        exportedBody[i] = shiftIndent(exportedBody[i], delta);
+
+      body = trimOuterBlankLines(exportedBody);
+      body = makeBlankLines(originalLeadingBlanks).concat(body).concat(makeBlankLines(originalTrailingBlanks));
+    }
+
+    while (cursor < exportedBlock.openIndex)
+      out.push(exportedLines[cursor++]);
+
+    out.push(exportedLines[exportedBlock.openIndex]);
+    for (var i = 0; i < body.length; ++i)
+      out.push(body[i]);
+    out.push(shiftIndent(exportedLines[exportedBlock.closeIndex], exportedQuoteIndent.length - originalQuoteIndent.length));
+
+    cursor = exportedBlock.closeIndex + 1;
+  }
+
+  while (cursor < exportedLines.length)
+    out.push(exportedLines[cursor++]);
+
+  return out.join('\n');
+}
+
 function exportSingleCommand(command) {
   var text = exportCommands([command]);
   var lines = text.split('\n');
@@ -71,9 +270,11 @@ function updateRepo() {
       currentByName[cmd.name] = cmd;
   }
 
-  for (var i = 0; i < files.length; i += 2) {
+  for (var i = 0; i < files.length; i += 3) {
     var repoFile = files[i];
     var importFile = files[i + 1];
+    var baselineFile = files[i + 2];
+    var originalText = baselineFile ? readFile(baselineFile) : '';
     var imported = importCommands(readFile(importFile));
     var updated = [];
 
@@ -91,7 +292,11 @@ function updateRepo() {
       continue;
     }
 
-    writeFile(repoFile, updated.length == 1 ? exportSingleCommand(updated[0]) : exportCommands(updated));
+    var text = updated.length == 1 ? exportSingleCommand(updated[0]) : exportCommands(updated);
+    if (originalText)
+      text = adjustCommandBlocks(originalText, text);
+
+    writeFile(repoFile, text);
     ++updatedFiles;
   }
 

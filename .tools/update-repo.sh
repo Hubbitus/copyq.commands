@@ -43,11 +43,14 @@ import_dir="$settings_dir/import"
 session="u$(date +%s | tail -c 6)"
 mkdir -p "$import_dir"
 
-import_args=()
+sync_args=()
 for i in "${!repo_files[@]}"; do
   import_file="$import_dir/$i.ini"
+  baseline_file="$import_dir/$i.baseline.ini"
   normalize_command_file "${repo_files[$i]}" "$import_file"
-  import_args+=("${repo_files[$i]}" "$import_file")
+  cp "${repo_files[$i]}" "$baseline_file"
+  sync_args+=("${repo_files[$i]}" "$import_file")
+  sync_args+=("$baseline_file")
 done
 
 cleanup() {
@@ -76,4 +79,4 @@ if [[ "$ready" != 1 ]]; then
 fi
 
 timeout 30s env COPYQ_SETTINGS_PATH="$settings_dir" QT_QPA_PLATFORM=offscreen \
-  copyq --session="$session" eval - update-repo "$target" "$repo_dir" "${import_args[@]}" < "$tools_dir/copyq_import_export.js"
+  copyq --session="$session" eval - update-repo "$target" "$repo_dir" "${sync_args[@]}" < "$tools_dir/copyq_import_export.js"
